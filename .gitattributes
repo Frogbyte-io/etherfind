@@ -1,0 +1,5 @@
+# Normalize to LF in the repository *and* in the working tree on every
+# platform. Without eol=lf, a Windows checkout (core.autocrlf=true, which is
+# the default on windows-latest CI runners) produces CRLF files that Biome's
+# formatter check rejects, so `npm run lint` fails on Windows only.
+* text=auto eol=lf
