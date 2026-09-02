@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { ExecResult } from "./exec.js";
 
 /**
@@ -45,17 +49,69 @@ export class SudoElevator implements Elevator {
   }
 }
 
+/** Quotes a value as a PowerShell single-quoted string literal. */
+function psQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+/**
+ * Builds the (non-elevated) PowerShell command that launches `argv` elevated.
+ *
+ * The elevated child is handed a base64 `-EncodedCommand` containing a real
+ * PowerShell script — encoding the *argv array* instead produces
+ * `["powershell.exe",...]`, which PowerShell rejects with
+ * "Missing type name after '['", so no elevated command ever ran.
+ *
+ * `-Verb RunAs` forces ShellExecute, which cannot be combined with
+ * `-RedirectStandardOutput`, so the elevated script redirects its own streams
+ * to files that the caller reads back; otherwise netsh failures are invisible.
+ */
+export function buildUacCommand(argv: string[], outPath: string, errPath: string): string {
+  const invocation = argv.map(psQuote).join(" ");
+  const inner = [
+    `& ${invocation} > ${psQuote(outPath)} 2> ${psQuote(errPath)}`,
+    "exit $LASTEXITCODE",
+  ].join("\n");
+  const encoded = Buffer.from(inner, "utf16le").toString("base64");
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    `$p = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','${encoded}') -Verb RunAs -Wait -PassThru`,
+    "exit $p.ExitCode",
+  ].join("; ");
+}
+
+/** Reads a file written by PowerShell, whose redirection encoding varies. */
+function readRedirected(path: string): string {
+  if (!existsSync(path)) return "";
+  try {
+    const buffer = readFileSync(path);
+    if (buffer[0] === 0xff && buffer[1] === 0xfe) return buffer.subarray(2).toString("utf16le");
+    if (buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf)
+      return buffer.subarray(3).toString("utf8");
+    return buffer.toString("utf8");
+  } catch {
+    return "";
+  } finally {
+    rmSync(path, { force: true });
+  }
+}
+
 export class UacElevator implements Elevator {
   readonly description = "UAC elevation";
 
   /**
    * Runs argv elevated through PowerShell's Start-Process -Verb RunAs,
-   * triggering a UAC prompt, and maps the elevated process exit code back.
+   * triggering a UAC prompt, and maps the elevated process exit code and
+   * output back to the unprivileged caller.
    */
-  run(argv: string[]): Promise<ExecResult> {
-    const encoded = Buffer.from(JSON.stringify(argv), "utf16le").toString("base64");
-    const command = `$p = Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList @('-NoProfile','-NonInteractive','-EncodedCommand','${encoded}') -Verb RunAs -Wait -PassThru; exit $p.ExitCode`;
-    return new Promise((resolve, reject) => {
+  async run(argv: string[]): Promise<ExecResult> {
+    if (argv.length === 0) throw new Error("Empty argv for elevated operation");
+    const id = randomUUID();
+    const outPath = join(tmpdir(), `etherfind-${id}.out`);
+    const errPath = join(tmpdir(), `etherfind-${id}.err`);
+    const command = buildUacCommand(argv, outPath, errPath);
+
+    const result = await new Promise<ExecResult>((resolve, reject) => {
       const child = spawn(
         "powershell.exe",
         ["-NoProfile", "-NonInteractive", "-Command", command],
@@ -65,13 +121,18 @@ export class UacElevator implements Elevator {
           windowsHide: true,
         },
       );
-      void collect(child).then((result) => {
-        if (result.code !== 0 && /canceled|cancelled|denied/i.test(result.stderr)) {
-          resolve({ ...result, stderr: `${result.stderr}\nElevation was declined by the user.` });
-          return;
-        }
-        resolve(result);
-      }, reject);
+      void collect(child).then(resolve, reject);
     });
+
+    const stdout = readRedirected(outPath);
+    const stderr = readRedirected(errPath);
+    if (result.code !== 0 && /canceled|cancelled|denied/i.test(result.stderr)) {
+      return {
+        stdout,
+        stderr: `${stderr || result.stderr}\nElevation was declined by the user.`,
+        code: result.code,
+      };
+    }
+    return { stdout, stderr: stderr || result.stderr, code: result.code };
   }
 }
