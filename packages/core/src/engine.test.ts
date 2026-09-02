@@ -9,6 +9,7 @@ import {
 import { DiscoveryEngine, type EngineEvent, type EngineServices } from "./engine.js";
 import type { NetworkInterfaceInfo } from "./models/interface.js";
 import type { InterfaceSnapshot, NetworkConfigService } from "./network-config/types.js";
+import { waitFor, whenCapturing, whenPhase } from "./test-support/wait-for.js";
 
 function iface(name: string, over: Partial<NetworkInterfaceInfo> = {}): NetworkInterfaceInfo {
   return {
@@ -103,37 +104,18 @@ function makeHarness(opts: {
   return { engine, runPromise, source, monitor, config, events };
 }
 
-/** Lets async engine internals settle (capture start, timers). */
-const settle = () => new Promise((r) => setTimeout(r, 30));
-
-/**
- * Waits until capture is actually running before injecting a frame.
- * SimulatedPacketSource.emit() drops frames until start() has been awaited, so
- * a fixed sleep is a race: on a slow CI runner the frame vanished and the run
- * promise never resolved (5s timeout).
- */
-async function whenCapturing(h: Harness): Promise<void> {
-  const deadline = Date.now() + 4000;
-  while (!h.source.isRunning) {
-    if (Date.now() > deadline) {
-      throw new Error(`capture never started (phase=${h.engine.phase})`);
-    }
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
-
 describe("DiscoveryEngine", () => {
   it("guides replug: link down → link up → ARP → configure → verified", async () => {
     const h = makeHarness({
       confirm: true,
       ping: async (ip) => ({ ok: true, detail: `ttl=64 ${ip}` }),
     });
-    await settle();
+    await whenPhase(h.engine, "waiting-for-disconnect");
     expect(h.engine.phase).toBe("waiting-for-disconnect");
     h.monitor.set("down");
     expect(h.engine.phase).toBe("waiting-for-link");
     h.monitor.set("up");
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     expect(h.engine.phase).toBe("listening");
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
@@ -166,7 +148,7 @@ describe("DiscoveryEngine", () => {
 
   it("skipReplug + noConfigure discovers without touching the network", async () => {
     const h = makeHarness({ engineOptions: { skipReplug: true, noConfigure: true } });
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.candidate).toMatchObject({ ip: DEVICE_IP });
@@ -181,10 +163,10 @@ describe("DiscoveryEngine", () => {
       confirm: false,
       ping: async () => ({ ok: true, detail: "" }),
     });
-    await settle();
+    await whenPhase(h.engine, "waiting-for-disconnect");
     h.monitor.set("down");
     h.monitor.set("up");
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.reachable).toBe(false);
@@ -197,10 +179,10 @@ describe("DiscoveryEngine", () => {
       ifaces: [iface("eth0", { addresses: [{ ip: "192.168.5.7", prefix: 24 }] })],
       ping: async () => ({ ok: true, detail: "ttl=64" }),
     });
-    await settle();
+    await whenPhase(h.engine, "waiting-for-disconnect");
     h.monitor.set("down");
     h.monitor.set("up");
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.reachable).toBe(true);
@@ -210,10 +192,10 @@ describe("DiscoveryEngine", () => {
 
   it("failed ping reports unreachable even after applying the temporary address", async () => {
     const h = makeHarness({ confirm: true, ping: async () => ({ ok: false, detail: "timeout" }) });
-    await settle();
+    await whenPhase(h.engine, "waiting-for-disconnect");
     h.monitor.set("down");
     h.monitor.set("up");
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(h.config.added).toEqual(["192.168.5.254"]);
@@ -223,7 +205,7 @@ describe("DiscoveryEngine", () => {
 
   it("listenOnly stops right after discovery", async () => {
     const h = makeHarness({ engineOptions: { skipReplug: true, listenOnly: true } });
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.candidate).toMatchObject({ ip: DEVICE_IP });
@@ -232,10 +214,10 @@ describe("DiscoveryEngine", () => {
 
   it("shutdown disposes capture/monitor; restore removes applied addresses", async () => {
     const h = makeHarness({});
-    await settle();
+    await whenPhase(h.engine, "waiting-for-disconnect");
     h.monitor.set("down");
     h.monitor.set("up");
-    await whenCapturing(h);
+    await whenCapturing(h.source, h.engine);
     h.source.emit(arpFrame().data);
     await h.runPromise;
     await h.engine.shutdown();
@@ -255,7 +237,7 @@ describe("DiscoveryEngine", () => {
     const events: EngineEvent[] = [];
     engine.onEvent((e) => events.push(e));
     const runPromise = engine.run();
-    await settle();
+    await whenCapturing(source, engine);
     source.fail("You don't have permission to perform this capture");
     const result = await runPromise;
     expect(result.candidate).toBeUndefined();
@@ -272,7 +254,10 @@ describe("DiscoveryEngine", () => {
       { skipReplug: true, noConfigure: true, interfaceName: "eth1" },
     );
     const runPromise = engine.run();
-    await settle();
+    await waitFor(
+      () => engine.selectedInterface !== undefined,
+      () => "the interface to be selected",
+    );
     expect(engine.selectedInterface?.name).toBe("eth1");
     source.fail("stop"); // end the run
     await runPromise;

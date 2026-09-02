@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEVICE_IP, DEVICE_MAC } from "./discovery/decoders/test-packets.js";
 import { SimulatedPlatform } from "./simulate.js";
+import { whenCapturing, whenPhase } from "./test-support/wait-for.js";
 
 /**
  * End-to-end: the complete workflow over the simulated platform, exactly like
@@ -25,11 +26,11 @@ describe("SimulatedPlatform E2E", () => {
     engine.onEvent((e) => events.push(e.type));
 
     const runPromise = engine.run();
-    await new Promise((r) => setTimeout(r, 50));
+    await whenPhase(engine, "waiting-for-disconnect");
 
     // Simulate the user replugging: unplug → plug back in.
     platform.unplug();
-    await new Promise((r) => setTimeout(r, 20));
+    await whenPhase(engine, "waiting-for-link");
     platform.plugInDevice(20); // announce almost immediately
 
     const result = await runPromise;
@@ -63,7 +64,7 @@ describe("SimulatedPlatform E2E", () => {
       },
     );
     const runPromise = engine.run();
-    await new Promise((r) => setTimeout(r, 30));
+    await whenPhase(engine, "waiting-for-disconnect");
     platform.unplug();
     platform.plugInDevice(10);
     await runPromise;
@@ -77,7 +78,7 @@ describe("SimulatedPlatform E2E", () => {
       { confirmConfigure: async () => true },
     );
     const runPromise = engine.run();
-    await new Promise((r) => setTimeout(r, 30));
+    await whenCapturing(platform.source, engine);
     platform.emitGratuitousArp();
     const result = await runPromise;
     expect(result.candidate).toBeDefined();
