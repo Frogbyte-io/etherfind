@@ -1,0 +1,29 @@
+{
+  "name": "etherfind-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -b --pretty",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "dev": "npm run dev --workspace etherfind"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.18",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
+}
