@@ -106,6 +106,22 @@ function makeHarness(opts: {
 /** Lets async engine internals settle (capture start, timers). */
 const settle = () => new Promise((r) => setTimeout(r, 30));
 
+/**
+ * Waits until capture is actually running before injecting a frame.
+ * SimulatedPacketSource.emit() drops frames until start() has been awaited, so
+ * a fixed sleep is a race: on a slow CI runner the frame vanished and the run
+ * promise never resolved (5s timeout).
+ */
+async function whenCapturing(h: Harness): Promise<void> {
+  const deadline = Date.now() + 4000;
+  while (!h.source.isRunning) {
+    if (Date.now() > deadline) {
+      throw new Error(`capture never started (phase=${h.engine.phase})`);
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 describe("DiscoveryEngine", () => {
   it("guides replug: link down → link up → ARP → configure → verified", async () => {
     const h = makeHarness({
@@ -117,7 +133,7 @@ describe("DiscoveryEngine", () => {
     h.monitor.set("down");
     expect(h.engine.phase).toBe("waiting-for-link");
     h.monitor.set("up");
-    await settle();
+    await whenCapturing(h);
     expect(h.engine.phase).toBe("listening");
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
@@ -150,7 +166,7 @@ describe("DiscoveryEngine", () => {
 
   it("skipReplug + noConfigure discovers without touching the network", async () => {
     const h = makeHarness({ engineOptions: { skipReplug: true, noConfigure: true } });
-    await settle();
+    await whenCapturing(h);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.candidate).toMatchObject({ ip: DEVICE_IP });
@@ -168,7 +184,7 @@ describe("DiscoveryEngine", () => {
     await settle();
     h.monitor.set("down");
     h.monitor.set("up");
-    await settle();
+    await whenCapturing(h);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.reachable).toBe(false);
@@ -184,7 +200,7 @@ describe("DiscoveryEngine", () => {
     await settle();
     h.monitor.set("down");
     h.monitor.set("up");
-    await settle();
+    await whenCapturing(h);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.reachable).toBe(true);
@@ -197,7 +213,7 @@ describe("DiscoveryEngine", () => {
     await settle();
     h.monitor.set("down");
     h.monitor.set("up");
-    await settle();
+    await whenCapturing(h);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(h.config.added).toEqual(["192.168.5.254"]);
@@ -207,7 +223,7 @@ describe("DiscoveryEngine", () => {
 
   it("listenOnly stops right after discovery", async () => {
     const h = makeHarness({ engineOptions: { skipReplug: true, listenOnly: true } });
-    await settle();
+    await whenCapturing(h);
     h.source.emit(arpFrame().data);
     const result = await h.runPromise;
     expect(result.candidate).toMatchObject({ ip: DEVICE_IP });
@@ -219,7 +235,7 @@ describe("DiscoveryEngine", () => {
     await settle();
     h.monitor.set("down");
     h.monitor.set("up");
-    await settle();
+    await whenCapturing(h);
     h.source.emit(arpFrame().data);
     await h.runPromise;
     await h.engine.shutdown();
