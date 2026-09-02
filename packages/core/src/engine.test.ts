@@ -272,4 +272,22 @@ describe("DiscoveryEngine", () => {
     );
     await expect(engine.run()).rejects.toThrow(/not found/);
   });
+
+  // Regression: on a machine with no Ethernet NIC, run() throws during
+  // interface selection while the phase is still "idle". shutdown() then hit
+  // "Invalid transition: beginCleanup in phase \"idle\"" and crashed the CLI
+  // with an unhandled rejection instead of reporting the real error.
+  it("shuts down cleanly when no usable interface exists", async () => {
+    const h = makeHarness({ ifaces: [] });
+    await expect(h.runPromise).rejects.toThrow(/No usable Ethernet interface/);
+    expect(h.engine.phase).toBe("idle");
+    await expect(h.engine.shutdown()).resolves.toBeUndefined();
+  });
+
+  it("tolerates shutdown() being called twice", async () => {
+    const h = makeHarness({ ifaces: [] });
+    await expect(h.runPromise).rejects.toThrow();
+    await h.engine.shutdown();
+    await expect(h.engine.shutdown()).resolves.toBeUndefined();
+  });
 });

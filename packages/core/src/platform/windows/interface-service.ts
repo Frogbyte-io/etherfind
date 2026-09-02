@@ -37,23 +37,32 @@ export type WindowsInterfaceServiceOptions = {
 };
 
 const INVENTORY_SCRIPT = `
-$ErrorActionPreference = 'SilentlyContinue';
-$adapters = Get-NetAdapter -IncludeHidden |
-  Select-Object Name, InterfaceDescription, InterfaceIndex, InterfaceGuid, MacAddress, Status, MediaType, PhysicalMediaType, DriverDescription, Virtual |
-  ConvertTo-Json -Compress -AsArray;
-$addresses = Get-NetIPAddress -AddressFamily IPv4 |
-  Select-Object InterfaceIndex, IPAddress, PrefixLength |
-  ConvertTo-Json -Compress -AsArray;
-@{ adapters = $adapters; addresses = $addresses } | ConvertTo-Json -Compress
+$ErrorActionPreference = 'Stop';
+$adapters = @(Get-NetAdapter -IncludeHidden |
+  Select-Object Name, InterfaceDescription, InterfaceIndex, InterfaceGuid, MacAddress, Status, MediaType, PhysicalMediaType, DriverDescription, Virtual);
+$addresses = @(Get-NetIPAddress -AddressFamily IPv4 |
+  Select-Object InterfaceIndex, IPAddress, PrefixLength);
+[pscustomobject]@{ adapters = $adapters; addresses = $addresses } | ConvertTo-Json -Compress -Depth 5
 `;
 
 function normalizeInventory(stdout: string): WinInventory {
-  const parsed = JSON.parse(stdout) as Partial<WinInventory> & {
-    adapters?: WinAdapter | WinAdapter[];
-    addresses?: WinIpAddress | WinIpAddress[];
-  };
-  const toArray = <T>(v: T | T[] | undefined): T[] =>
-    v === undefined ? [] : Array.isArray(v) ? v : [v];
+  const parsed = JSON.parse(stdout) as
+    | (Partial<WinInventory> & {
+        adapters?: WinAdapter | WinAdapter[] | null;
+        addresses?: WinIpAddress | WinIpAddress[] | null;
+      })
+    | null;
+  // Windows PowerShell 5.1 has no `ConvertTo-Json -AsArray`: a script using it
+  // still exits 0 but emits {"adapters":null,...}. Fail loudly rather than
+  // dereferencing nulls further down.
+  if (!parsed || typeof parsed !== "object" || parsed.adapters == null) {
+    throw new Error(
+      "PowerShell returned no network adapter inventory. Verify that Get-NetAdapter " +
+        "runs in this shell (Windows PowerShell 5.1 or PowerShell 7+ is required).",
+    );
+  }
+  const toArray = <T>(v: T | T[] | null | undefined): T[] =>
+    v == null ? [] : Array.isArray(v) ? v.filter((item) => item != null) : [v];
   return {
     adapters: toArray(parsed.adapters),
     addresses: toArray(parsed.addresses),

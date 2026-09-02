@@ -146,4 +146,11 @@ describe("DiscoveryStateMachine", () => {
     sm.cleanupComplete();
     expect(sm.phase).toBe("done");
   });
+
+  it("treats cleanup from idle as a no-op so teardown is always safe", () => {
+    const sm = new DiscoveryStateMachine();
+    expect(() => sm.beginCleanup()).not.toThrow();
+    expect(sm.phase).toBe("idle");
+    expect(() => sm.cleanupComplete()).not.toThrow();
+  });
 });

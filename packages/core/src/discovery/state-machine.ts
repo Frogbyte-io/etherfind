@@ -181,7 +181,9 @@ export class DiscoveryStateMachine {
       this.#transition("cleanup");
       return;
     }
-    if (this.#phase === "cleanup" || this.#phase === "done") {
+    // "idle" means run() never started, or failed during interface selection.
+    // There is nothing to tear down, but shutdown() must stay safe to call.
+    if (this.#phase === "idle" || this.#phase === "cleanup" || this.#phase === "done") {
       return;
     }
     throw invalid("beginCleanup", this.#phase);
@@ -192,7 +194,7 @@ export class DiscoveryStateMachine {
       this.#transition("done");
       return;
     }
-    if (this.#phase === "done") {
+    if (this.#phase === "idle" || this.#phase === "done") {
       return;
     }
     throw invalid("cleanupComplete", this.#phase);

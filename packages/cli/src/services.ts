@@ -14,6 +14,7 @@ import {
   WindowsInterfaceService,
   WindowsNetworkConfigService,
   pingProbe,
+  resolveDumpcapCommand,
 } from "@etherfind/core";
 
 export type ServiceOverrides = {
@@ -43,9 +44,11 @@ export function createRealServices(overrides: ServiceOverrides = {}): EngineServ
   const packetSourceFactory = (info: NetworkInterfaceInfo): PacketSource => {
     if (process.platform === "win32") {
       const captureDevice = info.captureName ?? info.name;
-      onDebug?.(`capture backend: dumpcap on ${captureDevice}`);
+      // Wireshark is not on PATH by default; resolve the real dumpcap.exe.
+      const command = resolveDumpcapCommand();
+      onDebug?.(`capture backend: ${command} on ${captureDevice}`);
       return new SubprocessPacketSource({
-        backend: DUMPCAP_BACKEND,
+        backend: { ...DUMPCAP_BACKEND, command },
         captureDevice,
         filter: CAPTURE_FILTER,
         onDebug,

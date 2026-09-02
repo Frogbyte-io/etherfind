@@ -1,5 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { CaptureError, type CapturedFrame, type PacketSource } from "./packet-source.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import {
+  CaptureError,
+  type CaptureErrorKind,
+  type CapturedFrame,
+  type PacketSource,
+} from "./packet-source.js";
 import { CaptureStreamParser } from "./pcap/capture-stream-parser.js";
 
 export type SubprocessBackend = {
@@ -9,7 +16,30 @@ export type SubprocessBackend = {
   args: (captureDevice: string, filter: string) => string[];
   /** Classify stderr output into a typed capture error. */
   classifyError: (stderr: string, code: number | null) => CaptureError;
+  /** Reported when the capture binary itself cannot be found. */
+  missingTool: { kind: CaptureErrorKind; guidance: string };
 };
+
+/**
+ * The Wireshark installer does not add dumpcap.exe to PATH, so a bare
+ * spawn("dumpcap") fails with ENOENT on an otherwise correctly configured
+ * machine (Npcap installed and working). Search PATH first, then the
+ * standard Wireshark install directories, before giving up.
+ */
+export function resolveDumpcapCommand(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  const pathDirs = (env.PATH ?? env.Path ?? "").split(";").filter((dir) => dir.length > 0);
+  const installDirs = [env.ProgramW6432, env.ProgramFiles, env["ProgramFiles(x86)"]]
+    .filter((root): root is string => Boolean(root))
+    .map((root) => join(root, "Wireshark"));
+  for (const dir of [...pathDirs, ...installDirs]) {
+    const candidate = join(dir, "dumpcap.exe");
+    if (exists(candidate)) return candidate;
+  }
+  return "dumpcap";
+}
 
 export const TCPDUMP_BACKEND: SubprocessBackend = {
   command: "tcpdump",
@@ -54,6 +84,11 @@ export const TCPDUMP_BACKEND: SubprocessBackend = {
       stderr.trim(),
       "tcpdump exited unexpectedly. Run with --debug for details.",
     );
+  },
+  missingTool: {
+    kind: "tool-missing",
+    guidance:
+      "Install tcpdump (e.g. `apt install tcpdump` or `dnf install tcpdump`), then run Etherfind again.",
   },
 };
 
@@ -100,6 +135,11 @@ export const DUMPCAP_BACKEND: SubprocessBackend = {
       `dumpcap exited with code ${code ?? "unknown"}. Run with --debug for details.`,
     );
   },
+  missingTool: {
+    kind: "npcap-missing",
+    guidance:
+      "Npcap is required for Ethernet packet capture on Windows. Install Npcap (https://npcap.com) or Wireshark (which bundles Npcap), then run Etherfind again.",
+  },
 };
 
 export type SubprocessSourceOptions = {
@@ -126,6 +166,7 @@ export class SubprocessPacketSource implements PacketSource {
   #onError: ((error: CaptureError) => void) | undefined;
   #stderrTail: string[] = [];
   #stopping = false;
+  #errorReported = false;
 
   constructor(options: SubprocessSourceOptions) {
     this.#options = options;
@@ -136,6 +177,13 @@ export class SubprocessPacketSource implements PacketSource {
     onFrame: (frame: CapturedFrame) => void;
     onError: (error: CaptureError) => void;
   }): Promise<void> {
+    // A failed spawn emits both 'error' and 'close'; report only the first,
+    // or the real cause is followed by a bogus "exited with code -4058".
+    const report = (error: CaptureError) => {
+      if (this.#errorReported) return;
+      this.#errorReported = true;
+      handlers.onError(error);
+    };
     this.#onError = handlers.onError;
     this.#parser = new CaptureStreamParser(handlers.onFrame);
     const args = this.#options.backend.args(
@@ -149,7 +197,7 @@ export class SubprocessPacketSource implements PacketSource {
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {
-      handlers.onError(
+      report(
         new CaptureError(
           "tool-missing",
           String(error),
@@ -178,17 +226,17 @@ export class SubprocessPacketSource implements PacketSource {
     child.on("error", (error) => {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT") {
-        handlers.onError(this.#missingToolError());
+        report(this.#missingToolError());
         return;
       }
-      handlers.onError(
+      report(
         new CaptureError("unknown", String(error), "Packet capture could not be started."),
       );
     });
     child.on("close", (code) => {
       if (this.#stopping) return;
       const stderr = this.#stderrTail.join("\n");
-      handlers.onError(
+      report(
         code === 0 || code === null
           ? new CaptureError(
               "crashed",
@@ -201,18 +249,8 @@ export class SubprocessPacketSource implements PacketSource {
   }
 
   #missingToolError(): CaptureError {
-    if (this.#options.backend === DUMPCAP_BACKEND) {
-      return new CaptureError(
-        "npcap-missing",
-        "dumpcap not found",
-        "Npcap is required for Ethernet packet capture on Windows. Install Npcap (https://npcap.com) or Wireshark (which bundles Npcap), then run Etherfind again.",
-      );
-    }
-    return new CaptureError(
-      "tool-missing",
-      "tcpdump not found",
-      "Install tcpdump (e.g. `apt install tcpdump` or `dnf install tcpdump`), then run Etherfind again.",
-    );
+    const { kind, guidance } = this.#options.backend.missingTool;
+    return new CaptureError(kind, `${this.#options.backend.command} not found`, guidance);
   }
 
   async stop(): Promise<void> {
@@ -220,6 +258,12 @@ export class SubprocessPacketSource implements PacketSource {
     const child = this.#child;
     this.#child = undefined;
     if (!child) return;
+    // The process may already be gone (spawn failure, tool crash). Waiting for
+    // another 'close' that will never arrive just burns the kill timeout.
+    if (child.exitCode !== null || child.signalCode !== null) {
+      this.#stopping = false;
+      return;
+    }
     await new Promise<void>((resolve) => {
       child.once("close", () => resolve());
       child.kill("SIGTERM");

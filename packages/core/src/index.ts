@@ -37,6 +37,7 @@ export {
   SubprocessPacketSource,
   TCPDUMP_BACKEND,
   DUMPCAP_BACKEND,
+  resolveDumpcapCommand,
   type SubprocessBackend,
 } from "./capture/subprocess-source.js";
 export {
