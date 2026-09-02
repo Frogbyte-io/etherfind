@@ -1,15 +1,15 @@
-import { Box, Text, useApp, useInput } from "ink";
-import { useEffect, useMemo, useRef, useState } from "react";
 import {
   DISCOVERY_SOURCE_LABEL,
-  DiscoveryEngine,
   type DeviceCandidate,
+  DiscoveryEngine,
   type EngineEvent,
   type EngineOptions,
   type EngineServices,
   type NetworkInterfaceInfo,
   type ReachabilityResult,
 } from "@etherfind/core";
+import { Box, Text, useApp, useInput } from "ink";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -23,8 +23,12 @@ function Spinner() {
 }
 
 const OK = (props: { children?: React.ReactNode }) => <Text color="green">✔ {props.children}</Text>;
-const INFO = (props: { children?: React.ReactNode }) => <Text color="cyan">● {props.children}</Text>;
-const WARN = (props: { children?: React.ReactNode }) => <Text color="yellow">⚠ {props.children}</Text>;
+const INFO = (props: { children?: React.ReactNode }) => (
+  <Text color="cyan">● {props.children}</Text>
+);
+const WARN = (props: { children?: React.ReactNode }) => (
+  <Text color="yellow">⚠ {props.children}</Text>
+);
 
 function Header() {
   return (
@@ -80,7 +84,9 @@ export function App(props: AppProps) {
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   const [configuring, setConfiguring] = useState<{ ip: string; prefix: number } | undefined>();
   const [verification, setVerification] = useState<{ ok: boolean; detail: string } | undefined>();
-  const [ready, setReady] = useState<{ candidate: DeviceCandidate; reachable: boolean } | null>(null);
+  const [ready, setReady] = useState<{ candidate: DeviceCandidate; reachable: boolean } | null>(
+    null,
+  );
   const [cleanupLines, setCleanupLines] = useState<string[]>([]);
   const [error, setError] = useState<{ message: string; fatal: boolean } | undefined>();
   const [listeningSeconds, setListeningSeconds] = useState(0);
@@ -182,7 +188,11 @@ export function App(props: AppProps) {
 
     uiRef.current.phase = engine.phase;
     setPhase(engine.phase);
-    void engine.run().catch((err: unknown) => setError({ message: err instanceof Error ? err.message : String(err), fatal: true }));
+    void engine
+      .run()
+      .catch((err: unknown) =>
+        setError({ message: err instanceof Error ? err.message : String(err), fatal: true }),
+      );
 
     return () => {
       off();
@@ -216,12 +226,14 @@ export function App(props: AppProps) {
       void finish();
       return;
     }
-    if (ui.pendingSelect) {
+    const pendingSelect = ui.pendingSelect;
+    if (pendingSelect) {
       if (key.upArrow) setSelectIndex((i) => Math.max(0, i - 1));
-      if (key.downArrow) setSelectIndex((i) => Math.min(ui.pendingSelect!.candidates.length - 1, i + 1));
+      if (key.downArrow)
+        setSelectIndex((i) => Math.min(pendingSelect.candidates.length - 1, i + 1));
       if (key.return || input === "\n") {
-        const choice = ui.pendingSelect.candidates[selectIndex];
-        if (choice) ui.pendingSelect.resolve(choice);
+        const choice = pendingSelect.candidates[selectIndex];
+        if (choice) pendingSelect.resolve(choice);
       }
       return;
     }
@@ -258,7 +270,9 @@ export function App(props: AppProps) {
       if (key.return || input === "\n") void finish();
       if (input === "c") {
         void copyToClipboard(ui.ready.candidate.ip).then((ok) =>
-          setCopyHint(ok ? "Copied to clipboard" : "Clipboard unavailable — select and copy manually"),
+          setCopyHint(
+            ok ? "Copied to clipboard" : "Clipboard unavailable — select and copy manually",
+          ),
         );
       }
       if (input === "o") {
@@ -268,7 +282,10 @@ export function App(props: AppProps) {
     }
   });
 
-  const listeningLabel = useMemo(() => `Listening for device traffic… (${listeningSeconds}s)`, [listeningSeconds]);
+  const listeningLabel = useMemo(
+    () => `Listening for device traffic… (${listeningSeconds}s)`,
+    [listeningSeconds],
+  );
 
   return (
     <Box flexDirection="column" gap={1} paddingX={1}>
@@ -309,7 +326,10 @@ export function App(props: AppProps) {
       {/* Workflow screens */}
       {phase === "waiting-for-disconnect" && (
         <Box flexDirection="column">
-          <INFO>Disconnect the device from {selected?.displayName ?? "the interface"} if it is already connected.</INFO>
+          <INFO>
+            Disconnect the device from {selected?.displayName ?? "the interface"} if it is already
+            connected.
+          </INFO>
           <Box>
             <Text>Press </Text>
             <Text bold>Enter</Text>
@@ -341,7 +361,8 @@ export function App(props: AppProps) {
             <Box flexDirection="column" marginTop={1}>
               <Text>No IP traffic detected.</Text>
               <Text>
-                <Text bold>k</Text> keep listening · <Text bold>r</Text> reconnect Ethernet again · <Text bold>q</Text> quit
+                <Text bold>k</Text> keep listening · <Text bold>r</Text> reconnect Ethernet again ·{" "}
+                <Text bold>q</Text> quit
               </Text>
             </Box>
           ) : (
@@ -380,7 +401,11 @@ export function App(props: AppProps) {
           </Text>
         </Box>
       )}
-      {reachability?.reachable && <OK>Already reachable via {reachability.via.interfaceName} ({reachability.via.ip})</OK>}
+      {reachability?.reachable && (
+        <OK>
+          Already reachable via {reachability.via.interfaceName} ({reachability.via.ip})
+        </OK>
+      )}
 
       {pendingConfirm && (
         <Box flexDirection="column">
@@ -391,14 +416,19 @@ export function App(props: AppProps) {
             </Text>
             ?
           </Text>
-          <Text dimColor>y/Enter yes · n/Esc no — the address is temporary and removed on exit</Text>
+          <Text dimColor>
+            y/Enter yes · n/Esc no — the address is temporary and removed on exit
+          </Text>
         </Box>
       )}
 
       {phase === "configuring" && (
         <Box>
           <Spinner />
-          <Text> Applying temporary address {configuring?.ip}/{configuring?.prefix}…</Text>
+          <Text>
+            {" "}
+            Applying temporary address {configuring?.ip}/{configuring?.prefix}…
+          </Text>
         </Box>
       )}
 
@@ -410,7 +440,9 @@ export function App(props: AppProps) {
       )}
 
       {verification && !ready && (phase === "verifying" || phase === "connected") && (
-        <Box>{verification.ok ? <OK>Device responds</OK> : <WARN>Device did not respond to ping</WARN>}</Box>
+        <Box>
+          {verification.ok ? <OK>Device responds</OK> : <WARN>Device did not respond to ping</WARN>}
+        </Box>
       )}
 
       {ready && (
@@ -480,7 +512,11 @@ async function copyToClipboard(text: string): Promise<boolean> {
 async function openBrowser(url: string): Promise<void> {
   const { spawn } = await import("node:child_process");
   const argv =
-    process.platform === "win32" ? ["cmd", "/c", "start", "", url] : process.platform === "darwin" ? ["open", url] : ["xdg-open", url];
+    process.platform === "win32"
+      ? ["cmd", "/c", "start", "", url]
+      : process.platform === "darwin"
+        ? ["open", url]
+        : ["xdg-open", url];
   const [cmd, ...cmdArgs] = argv;
   if (!cmd) return;
   try {

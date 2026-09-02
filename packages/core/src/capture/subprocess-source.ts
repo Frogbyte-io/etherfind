@@ -229,9 +229,7 @@ export class SubprocessPacketSource implements PacketSource {
         report(this.#missingToolError());
         return;
       }
-      report(
-        new CaptureError("unknown", String(error), "Packet capture could not be started."),
-      );
+      report(new CaptureError("unknown", String(error), "Packet capture could not be started."));
     });
     child.on("close", (code) => {
       if (this.#stopping) return;

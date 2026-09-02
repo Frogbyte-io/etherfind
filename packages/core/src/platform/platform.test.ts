@@ -114,10 +114,7 @@ describe("WindowsInterfaceService", () => {
     const service = new WindowsInterfaceService({
       run: async () =>
         ok(
-          inventory(
-            [adapter()],
-            [{ InterfaceIndex: 12, IPAddress: "10.0.0.5", PrefixLength: 24 }],
-          ),
+          inventory([adapter()], [{ InterfaceIndex: 12, IPAddress: "10.0.0.5", PrefixLength: 24 }]),
         ),
     });
     const infos = await service.enumerate();
