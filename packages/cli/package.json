@@ -7,7 +7,7 @@
   "bin": {
     "etherfind": "./dist/cli.js"
   },
-  "files": ["dist"],
+  "files": ["dist", "!dist/**/*.test.*", "!dist/test-support/**", "!dist/**/*.tsbuildinfo"],
   "engines": {
     "node": ">=20"
   },
