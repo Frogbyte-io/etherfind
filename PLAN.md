@@ -130,10 +130,16 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
       parse classic pcap stream, extract ARP sender IP/MAC. Parser proven via unit
       tests + simulated E2E; live capture requires privileges (documented paths:
       scoped sudo helper or `setcap cap_net_raw+ep` on tcpdump).
-- [ ] Spike B (Windows): on a DHCP-enabled interface run the `dhcpstaticipcoexistence`
-      recipe above; verify DHCP lease survives, second address present, `store=active`
-      semantics, clean `delete address` restoration. **Requires real Windows hardware.**
-- [ ] Spike C: `dumpcap -i <if> -w -` piped to Node (pcapng stream) on Windows.
+- [~] Spike B (Windows): netsh syntax verified against real `netsh /?` output on
+      Windows 11 — positional `add address <name> <ip>/<len> store=active
+      skipassource=true` and `delete address <name> <ip> store=active` are both
+      valid, `set interface ... dhcpstaticipcoexistence=` exists, and PowerShell
+      tokenizes `interface='Name With Spaces'` into a single argument. The live
+      add/remove cycle on a DHCP-enabled NIC is **still unverified**: it needs an
+      approved UAC prompt, which has not happened yet.
+- [x] Spike C: `dumpcap -i <if> -w -` piped to Node (pcapng stream) on Windows.
+      Verified live: 25,100 frames parsed by the in-house pcapng parser with no
+      parse errors, yielding correct ARP/IPv4/mDNS observations.
 - [x] Write `docs/decisions/` ADRs → covered by `PLAN.md` Part 1 + code docs.
 
 ### Stage 1 — Project scaffold + simulated mode foundation ✅
@@ -233,23 +239,51 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 - [x] Repository initialized; initial implementation committed.
 - [ ] CI: GitHub Actions matrix (ubuntu + windows) running lint/typecheck/test/build,
       plus a packaging smoke test (`npm pack`, install from tarball, `--help`/`--version`).
-- [ ] Windows smoke test on real hardware (Spikes B/C + full TUI workflow).
+      Done: `.github/workflows/ci.yml` (ubuntu + windows, node 20 and 22), plus a
+      packaging job that installs the CLI tarball and runs a simulated E2E.
+- [~] Windows smoke test on real hardware: Spike C, enumeration, capture and live
+      discovery verified; Spike B's elevated write still pending a UAC approval.
 - [ ] Pre-publish checks: `npm view etherfind` still free, `npm publish --dry-run`
       file audit, provenance (npm >= 11.5), GitHub release tag v0.1.0.
 - [ ] Publish `etherfind@0.1.0`.
 
+## Windows verification results (2026-09-02, Windows 11 Pro, PS 5.1, Npcap + Wireshark)
+
+Verified on a Realtek USB 2.5GbE NIC. Five defects found, all fixed:
+
+1. **Enumeration was dead on PowerShell 5.1.** `ConvertTo-Json -AsArray` is PS 6+
+   only; under `SilentlyContinue` the script emitted
+   `{"adapters":null,"addresses":null}` and `enumerate()` threw
+   "Cannot read properties of null (reading 'Status')". It also double-encoded
+   each query into the outer object. Now one `ConvertTo-Json -Depth` over a
+   `[pscustomobject]`, with an actionable error on a null inventory.
+2. **UAC elevation never ran anything.** `-EncodedCommand` received
+   `JSON.stringify(argv)`, so the elevated shell died on
+   "Missing type name after '['" — i.e. *no* Windows address change had ever
+   worked. Now a real script using the call operator, with output captured via
+   temp files (`-Verb RunAs` forbids `-RedirectStandardOutput`).
+3. **dumpcap is not on PATH** after a normal Wireshark install, so capture
+   failed with ENOENT and reported "Npcap missing" on a working machine.
+4. **Teardown crashed** from the `idle` phase, burying the real error.
+5. **Coexistence flag** was disabled on cleanup even when the user had enabled it.
+
+Live end-to-end run (`--interface Ethernet --listen --no-configure --json`)
+discovered a real device (`192.168.68.32`, hostname `sic-dev2`) via DHCP, exit 0.
+
 ## Remaining steps (next session checklist)
 
-1. **Windows verification (highest priority)** — Spikes B/C and the full workflow
-   on a real Windows 10/11 machine with Npcap; fix whatever diverges (dumpcap
-   arg quirks, PowerShell JSON edge cases with `-AsArray` on older PS 5.1, UAC
-   helper exit-code mapping). Consider a PS 5.1 fallback that avoids
-   `ConvertTo-Json -AsArray` (single-element arrays collapse in PS 5.1).
-2. **CI pipeline** — GitHub Actions: lint + typecheck + tests on ubuntu-latest and
-   windows-latest; artifact smoke test of `npm pack`.
-3. **Real-hardware test matrix** — Linux (NetworkManager-managed and not, sudo
+1. **Spike B live add/remove** — the only Windows path still unproven end to end.
+   Needs an approved UAC prompt on a DHCP-enabled NIC: confirm DHCP stays
+   `Enabled`, the address appears with `skipassource=True`/`ActiveStore`, and
+   both the address and the coexistence flag are restored afterwards.
+   `.scratch/spike-b.mjs` in the working tree does exactly this.
+2. **Real-hardware test matrix** — Linux (NetworkManager-managed and not, sudo
    helper path), USB Ethernet adapters, silent-device timeout menu flow.
+   A Linux box is available as `ananords-dev` (Ubuntu 24.04) for the tcpdump path.
+3. **Full TUI workflow on real hardware** — the Ink UI was only exercised against
+   the simulated backend and in JSON mode on the real NIC.
 4. **Publish** — `npm view etherfind`, `npm publish`, tag `v0.1.0`, GitHub release.
+   Confirm the LICENSE copyright holder ("Frogbyte") is correct first.
 5. **Post-v0.1 (designed for, not implemented)**: device memory journal,
    `DiscoveryStrategy` plugins (ARP sweep / common subnets), native libpcap
    accelerated backend, desktop GUI/tray reuse of `@etherfind/core`.
