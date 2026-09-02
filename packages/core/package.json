@@ -19,5 +19,13 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frogbyte-io/etherfind.git",
+    "directory": "packages/core"
   }
 }

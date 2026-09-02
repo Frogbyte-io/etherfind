@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  check:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is a first-class target: the netsh/PowerShell/dumpcap paths
+        # only ever run there, and several defects were Windows-only.
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+
+  package:
+    name: packaging smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+      # Pack both workspaces and install the CLI tarball into a throwaway
+      # project, so a missing "files" entry or an unpublishable workspace
+      # dependency fails here rather than after `npm publish`.
+      - name: Pack workspaces
+        run: |
+          mkdir -p /tmp/tarballs
+          npm pack --workspace @etherfind/core --pack-destination /tmp/tarballs
+          npm pack --workspace etherfind --pack-destination /tmp/tarballs
+          ls -l /tmp/tarballs
+
+      - name: Install from tarball and run the CLI
+        run: |
+          mkdir -p /tmp/smoke && cd /tmp/smoke
+          npm init -y > /dev/null
+          npm install /tmp/tarballs/etherfind-*.tgz /tmp/tarballs/etherfind-core-*.tgz
+          ./node_modules/.bin/etherfind --version
+          ./node_modules/.bin/etherfind --help
+
+      # The simulated backend exercises the full state machine end to end
+      # without any capture privileges or real hardware.
+      - name: Simulated end-to-end run
+        run: |
+          cd /tmp/smoke
+          ./node_modules/.bin/etherfind --simulate --json | tee run.ndjson
+          grep -q '"event":"final"' run.ndjson
+          grep -q '"ok":true' run.ndjson

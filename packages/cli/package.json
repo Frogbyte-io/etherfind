@@ -12,12 +12,17 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@etherfind/core": "*",
+    "@etherfind/core": "^0.1.0",
     "ink": "^6.0.0",
     "react": "^19.0.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "node --watch dist/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/frogbyte-io/etherfind.git",
+    "directory": "packages/cli"
   }
 }
