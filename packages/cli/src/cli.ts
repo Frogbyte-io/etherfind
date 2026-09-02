@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import os from "node:os";
+import path from "node:path";
 import {
   CleanupManager,
   type EngineOptions,
@@ -7,6 +9,7 @@ import {
 } from "@etherfind/core";
 import { runJsonMode } from "./json-mode.js";
 import { createRealServices } from "./services.js";
+import { installShutdownSignals } from "./signals.js";
 
 type CliArgs = {
   interfaceName?: string;
@@ -159,11 +162,21 @@ async function main(): Promise<number> {
     skipReplug: args.listen,
     noConfigure: args.noConfigure,
     listenOnly: args.listen,
-    journalPath: undefined,
+    // --simulate must never touch the real cleanup journal: the engine replays
+    // leftovers on startup, so a simulated run would "restore" a real recorded
+    // change through the fake network service and then delete the journal,
+    // orphaning configuration that is still applied to a real interface.
+    journalPath: args.simulate
+      ? path.join(os.tmpdir(), "etherfind-simulate-journal.json")
+      : undefined,
   };
 
   if (args.json) {
-    const final = await runJsonMode({ services, options });
+    const final = await runJsonMode({
+      services,
+      options,
+      onEngine: (engine) => installShutdownSignals(engine),
+    });
     return final.ok ? 0 : 1;
   }
 
@@ -178,7 +191,13 @@ async function main(): Promise<number> {
   const React = await import("react");
   const { App } = await import("./tui/App.js");
   const instance = render(
-    React.createElement(App, { services, options, debug: args.debug, onFinished: () => {} }),
+    React.createElement(App, {
+      services,
+      options,
+      debug: args.debug,
+      onFinished: () => {},
+      onEngine: (engine) => installShutdownSignals(engine),
+    }),
     {
       exitOnCtrlC: false,
       patchConsole: true,

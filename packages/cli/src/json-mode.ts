@@ -10,6 +10,8 @@ export type JsonModeOptions = {
   options: EngineOptions;
   /** Auto-confirm configuration changes (default true in JSON mode). */
   autoConfirm?: boolean;
+  /** Receives the engine so the caller can wire signal-driven cleanup. */
+  onEngine?: (engine: DiscoveryEngine) => void;
   onEvent?: (event: EngineEvent) => void;
 };
 
@@ -24,6 +26,7 @@ export async function runJsonMode(options: JsonModeOptions): Promise<FinalJson> 
   const engine = new DiscoveryEngine(options.services, options.options, {
     confirmConfigure: async () => options.autoConfirm ?? true,
   });
+  options.onEngine?.(engine);
   engine.onEvent((event) => {
     options.onEvent?.(event);
     write({

@@ -46,6 +46,8 @@ export type AppProps = {
   options: EngineOptions;
   debug: boolean;
   onFinished: () => void;
+  /** Receives the engine so the CLI can wire signal-driven cleanup. */
+  onEngine?: (engine: DiscoveryEngine) => void;
 };
 
 type PendingConfirm = {
@@ -112,7 +114,7 @@ export function App(props: AppProps) {
   // Engine lifecycle. Mounted once; the engine drives everything via events.
   // biome-ignore lint/correctness/useExhaustiveDependencies: lifecycle effect must run exactly once
   useEffect(() => {
-    const engine = new DiscoveryEngine(props.services, props.options, {
+    const engine: DiscoveryEngine = new DiscoveryEngine(props.services, props.options, {
       confirmConfigure: (result) =>
         new Promise<boolean>((resolve) => {
           const pending = { suggestion: result.suggestion, resolve };
@@ -133,6 +135,8 @@ export function App(props: AppProps) {
         : undefined,
     });
     engineRef.current = engine;
+    // Ink intercepts Ctrl+C, but not SIGTERM/SIGHUP or a closed terminal.
+    props.onEngine?.(engine);
 
     const off = engine.onEvent((event: EngineEvent) => {
       if (props.debug) process.stderr.write(`[tui] event: ${event.type}\n`);
