@@ -96,21 +96,47 @@ strictly validated (IP + interface index/alias from our own enumeration).
 
 ## Part 2: Staged implementation plan
 
-### Stage 0 — Feasibility spikes (1–2 days, done before/superset of scaffolding)
+### Implementation status (updated after first build)
+
+Stages 1–7 are implemented and verified. Test/lint/typecheck state at time of
+writing: **77/77 tests green, biome clean, `tsc -b` clean**, plus E2E
+verification:
+
+- `--simulate --json`: full workflow (replug → gratuitous-ARP discovery →
+  suggestion 192.168.5.254/24 → applied → verified → restored → final summary),
+  exit 0.
+- TUI E2E under a real pty: selection → guided replug → device card →
+  confirmation → verification → ready screen → Enter → restore → exit 0.
+- Live Linux interface enumeration: docker/veth/tailscale/loopback correctly
+  filtered; physical NIC classified.
+- Spike A (Linux, live): unprivileged capture fails with a clean EPERM —
+  confirms the privilege model's error path.
+
+Notable implementation decisions made during the build (details in code):
+
+- Capture streams are parsed by in-house, dependency-free pcap **and** pcapng
+  parsers (`dumpcap -w -` emits pcapng, `tcpdump -w -` classic pcap).
+- Windows config avoids `New-NetIPAddress` (documented to disable DHCP) and
+  uses the netsh coexistence + `store=active skipassource=true` recipe.
+- Ink `useInput` handlers can observe stale closures — the TUI mirrors all
+  input-relevant state into a ref; Ctrl+D/EOF is deliberately not a quit key.
+- CLI package is named `etherfind` (available on npm), core is `@etherfind/core`.
+
+### Stage 0 — Feasibility spikes ✅/⏳ (partially done)
 
 Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 
-- [ ] Spike A (Linux): `tcpdump -U -n -i <if> '(arp or ip)' -w -` piped into Node,
-      parse classic pcap stream, extract ARP sender IP/MAC. Confirm works without
-      root when tcpdump has filecaps (default on many distros) else via sudo.
+- [x] Spike A (Linux): `tcpdump -U -n -i <if> '(arp or ip)' -w -` piped into Node,
+      parse classic pcap stream, extract ARP sender IP/MAC. Parser proven via unit
+      tests + simulated E2E; live capture requires privileges (documented paths:
+      scoped sudo helper or `setcap cap_net_raw+ep` on tcpdump).
 - [ ] Spike B (Windows): on a DHCP-enabled interface run the `dhcpstaticipcoexistence`
       recipe above; verify DHCP lease survives, second address present, `store=active`
-      semantics, clean `delete address` restoration.
+      semantics, clean `delete address` restoration. **Requires real Windows hardware.**
 - [ ] Spike C: `dumpcap -i <if> -w -` piped to Node (pcapng stream) on Windows.
-- [ ] Write `docs/decisions/` ADRs: capture architecture, Windows config recipe,
-      Linux privilege model, `/24` assumption modeling.
+- [x] Write `docs/decisions/` ADRs → covered by `PLAN.md` Part 1 + code docs.
 
-### Stage 1 — Project scaffold + simulated mode foundation
+### Stage 1 — Project scaffold + simulated mode foundation ✅
 
 - [ ] npm workspaces monorepo: `packages/core`, `packages/cli` (single-repo start,
       split later only if needed; CLI imports core via workspace path).
@@ -124,7 +150,7 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 - [ ] `SimulatedSource` + `SimulatedLinkMonitor` + `SimulatedNetworkConfig` driving
       the full happy path (`pnpm dev --simulate`).
 
-### Stage 2 — Platform layer: interfaces & link monitoring
+### Stage 2 — Platform layer: interfaces & link monitoring ✅
 
 - [ ] `interfaces/` port: `enumerate(): InterfaceInfo[]`, `watchLink(): LinkMonitor`.
 - [ ] Linux impl: `/sys/class/net`, uevent, carrier/operstate, MAC, addresses.
@@ -134,7 +160,7 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
       and Wi-Fi by default; `--all-interfaces` flag; classify physical/USB.
 - [ ] Unit tests with fixture files of `/sys` trees and PowerShell JSON dumps.
 
-### Stage 3 — Capture & passive discovery core
+### Stage 3 — Capture & passive discovery core ✅
 
 - [ ] `PacketSource` interface (`open/close/onPacket`), `TcpdumpSource` (Linux),
       `DumpcapSource` (Windows), detection + actionable errors (Npcap missing,
@@ -150,7 +176,7 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 - [ ] Tests: golden packet fixtures (crafted byte arrays), host-packet exclusion,
       confidence ranking, cancellation.
 
-### Stage 4 — Reachability & suggested local address
+### Stage 4 — Reachability & suggested local address ✅
 
 - [ ] `Reachability` port: does the host have any address/route covering the
       device subnet? (Linux netlink/procfs or `ip route get`; Windows
@@ -160,7 +186,7 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
       aware); returns `{ ip, prefix, assumed: true }` with `/24` default.
 - [ ] Tests: subnet math, device-IP avoidance, already-reachable case.
 
-### Stage 5 — Network configuration & privilege model
+### Stage 5 — Network configuration & privilege model ✅
 
 - [ ] `NetworkConfig` port: `snapshot(iface)`, `addAddress()`, `removeAddress()`,
       `restore(snapshot)`; only ever touches the single selected interface.
@@ -179,7 +205,7 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 - [ ] Tests with mocked executors: cleanup on all paths, failed-elevation path,
       restoration of coexistence flag, no-cross-interface guarantee.
 
-### Stage 6 — CLI + Ink TUI
+### Stage 6 — CLI + Ink TUI ✅
 
 - [ ] `packages/cli`: arg parsing (tiny hand-rolled or `commander`-minimal):
       `--interface`, `--listen` (skip replug), `--no-configure`, `--debug`,
@@ -191,7 +217,7 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 - [ ] `--json` machine mode: state events as NDJSON on stdout, no Ink.
 - [ ] `--debug`: capture/packet diagnostics to stderr or file, clean default output.
 
-### Stage 7 — End-to-end verification & connectivity checks
+### Stage 7 — End-to-end verification & connectivity checks ✅ (simulated; real-hardware matrix pending)
 
 - [ ] After config: ARP probe (watch capture for ARP reply after our own ARP
       request) + system `ping` with short timeout; TCP connect probe hook.
@@ -200,15 +226,33 @@ Goal: prove the two riskiest platform mechanics on real OSes; write short ADRs.
 - [ ] Manual test matrix doc: Linux (NM-managed and not), Windows 10/11 (DHCP and
       static primary), USB Ethernet adapters.
 
-### Stage 8 — Packaging, publish, polish
+### Stage 8 — Packaging, publish, polish ⏳ (partially done)
 
-- [ ] `bin` entry `etherfind`, `files` allowlist, optional `optionalDependencies`
-      split if a native backend is added later.
-- [ ] CI: GitHub Actions matrix (ubuntu + windows), lint/typecheck/test,
-      package smoke test (`npm pack` + `npx` install simulation).
-- [ ] README with requirements (Npcap link, libpcap), troubleshooting table,
-      safety explanation (what gets modified and restored).
-- [ ] `npm view etherfind` → publish `@latest`, tag v0.1.
+- [x] `bin` entry `etherfind`, workspace build via `tsc -b`, `.gitignore`, license field.
+- [x] README with requirements, workflow, options, scriptable mode, safety notes.
+- [x] Repository initialized; initial implementation committed.
+- [ ] CI: GitHub Actions matrix (ubuntu + windows) running lint/typecheck/test/build,
+      plus a packaging smoke test (`npm pack`, install from tarball, `--help`/`--version`).
+- [ ] Windows smoke test on real hardware (Spikes B/C + full TUI workflow).
+- [ ] Pre-publish checks: `npm view etherfind` still free, `npm publish --dry-run`
+      file audit, provenance (npm >= 11.5), GitHub release tag v0.1.0.
+- [ ] Publish `etherfind@0.1.0`.
+
+## Remaining steps (next session checklist)
+
+1. **Windows verification (highest priority)** — Spikes B/C and the full workflow
+   on a real Windows 10/11 machine with Npcap; fix whatever diverges (dumpcap
+   arg quirks, PowerShell JSON edge cases with `-AsArray` on older PS 5.1, UAC
+   helper exit-code mapping). Consider a PS 5.1 fallback that avoids
+   `ConvertTo-Json -AsArray` (single-element arrays collapse in PS 5.1).
+2. **CI pipeline** — GitHub Actions: lint + typecheck + tests on ubuntu-latest and
+   windows-latest; artifact smoke test of `npm pack`.
+3. **Real-hardware test matrix** — Linux (NetworkManager-managed and not, sudo
+   helper path), USB Ethernet adapters, silent-device timeout menu flow.
+4. **Publish** — `npm view etherfind`, `npm publish`, tag `v0.1.0`, GitHub release.
+5. **Post-v0.1 (designed for, not implemented)**: device memory journal,
+   `DiscoveryStrategy` plugins (ARP sweep / common subnets), native libpcap
+   accelerated backend, desktop GUI/tray reuse of `@etherfind/core`.
 
 ### Out of scope for v0.1 (per brief)
 
