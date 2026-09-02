@@ -94,23 +94,57 @@ export class WindowsNetworkConfigService implements NetworkConfigService {
   ): Promise<Record<string, string>> {
     assertValidIp(ip);
     assertValidInterface(interfaceName);
-    // Enable static+DHCP coexistence, then add the address as active (non-persistent).
+    // Only claim ownership of the coexistence flag when we positively observed
+    // it disabled beforehand. If it was already enabled — or we could not read
+    // it — cleanup leaves it alone rather than turning off a setting the user
+    // may depend on for their own static+DHCP configuration.
+    const coexistenceBefore = await this.#readCoexistence(interfaceName);
+    const enabledByUs = coexistenceBefore === "disabled";
+    const commands: string[] = [];
+    if (coexistenceBefore !== "enabled") {
+      commands.push(
+        `netsh interface ipv4 set interface interface='${escapeSingle(interfaceName)}' dhcpstaticipcoexistence=enabled`,
+      );
+    }
+    commands.push(
+      `netsh interface ipv4 add address '${escapeSingle(interfaceName)}' ${ip}/${prefix} store=active skipassource=true`,
+    );
     const results = await this.#runElevated([
       this.#powershell,
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      [
-        `netsh interface ipv4 set interface interface='${escapeSingle(interfaceName)}' dhcpstaticipcoexistence=enabled`,
-        `netsh interface ipv4 add address '${escapeSingle(interfaceName)}' ${ip}/${prefix} store=active skipassource=true`,
-      ].join("; "),
+      commands.join("; "),
     ]);
     if (results.code !== 0 || /failed|error/i.test(results.stderr)) {
       throw new Error(
         `Failed to add address on ${interfaceName}: ${results.stderr.trim() || `exit code ${results.code}`}`,
       );
     }
-    return { coexistenceEnabledByUs: "true" };
+    return { coexistenceEnabledByUs: String(enabledByUs) };
+  }
+
+  /**
+   * Reads the current DHCP/static coexistence flag. Returns "unknown" when the
+   * value cannot be determined (non-English Windows translates the label), in
+   * which case the caller must not try to restore it.
+   */
+  async #readCoexistence(interfaceName: string): Promise<"enabled" | "disabled" | "unknown"> {
+    try {
+      const result = await this.#runUnprivileged([
+        this.#powershell,
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `netsh interface ipv4 show interface '${escapeSingle(interfaceName)}'`,
+      ]);
+      const line = result.stdout.split(/\r?\n/).find((candidate) => /coexistence/i.test(candidate));
+      const value = line?.split(":").pop()?.trim().toLowerCase();
+      if (value === "enabled" || value === "disabled") return value;
+    } catch {
+      // Fall through to "unknown"; never block configuration on this read.
+    }
+    return "unknown";
   }
 
   async removeAddress(

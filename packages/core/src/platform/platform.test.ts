@@ -47,6 +47,13 @@ describe("LinuxNetworkConfigService", () => {
   });
 });
 
+/** Shape of a real `netsh interface ipv4 show interface` block. */
+const coexistenceOutput = (value: string) =>
+  [
+    "Router Discovery                   : dhcp",
+    `DHCP/Static IP coexistence         : ${value}`,
+  ].join("\n");
+
 describe("WindowsNetworkConfigService", () => {
   it("uses the dhcpstaticipcoexistence + store=active recipe and restores the flag", async () => {
     const elevated: string[] = [];
@@ -57,6 +64,7 @@ describe("WindowsNetworkConfigService", () => {
       },
       runUnprivileged: async (argv: string[]) => {
         const script = argv[argv.length - 1] ?? "";
+        if (script.includes("show interface")) return ok(coexistenceOutput("disabled"));
         if (script.includes("Dhcp")) return ok("Enabled");
         return ok('[{"IPAddress":"10.0.0.5","PrefixLength":24}]');
       },
@@ -71,6 +79,44 @@ describe("WindowsNetworkConfigService", () => {
     await service.removeAddress("Ethernet 2", "192.168.5.254", 24, details);
     expect(elevated[1]).toContain("delete address 'Ethernet 2' 192.168.5.254");
     expect(elevated[1]).toContain("dhcpstaticipcoexistence=disabled");
+  });
+
+  // Regression: addAddress always reported coexistenceEnabledByUs=true, so
+  // cleanup disabled the flag even for a user who had deliberately enabled it.
+  it("leaves an already-enabled coexistence flag untouched", async () => {
+    const elevated: string[] = [];
+    const service = new WindowsNetworkConfigService({
+      runElevated: async (argv: string[]) => {
+        elevated.push(argv[argv.length - 1] ?? "");
+        return ok();
+      },
+      runUnprivileged: async () => ok(coexistenceOutput("enabled")),
+    });
+    const details = await service.addAddress("Ethernet 2", "192.168.5.254", 24);
+    expect(details.coexistenceEnabledByUs).toBe("false");
+    expect(elevated[0]).not.toContain("dhcpstaticipcoexistence");
+    expect(elevated[0]).toContain("add address 'Ethernet 2' 192.168.5.254/24");
+    await service.removeAddress("Ethernet 2", "192.168.5.254", 24, details);
+    expect(elevated[1]).not.toContain("dhcpstaticipcoexistence");
+  });
+
+  it("does not restore coexistence when the previous value is unreadable", async () => {
+    const elevated: string[] = [];
+    const service = new WindowsNetworkConfigService({
+      runElevated: async (argv: string[]) => {
+        elevated.push(argv[argv.length - 1] ?? "");
+        return ok();
+      },
+      // A localized Windows translates the label, so nothing matches.
+      runUnprivileged: async () => ok("Routersuche                        : dhcp"),
+    });
+    const details = await service.addAddress("Ethernet 2", "192.168.5.254", 24);
+    expect(details.coexistenceEnabledByUs).toBe("false");
+    // Still enabled, because the address would otherwise be refused...
+    expect(elevated[0]).toContain("dhcpstaticipcoexistence=enabled");
+    // ...but never turned back off, since we cannot know it was ours.
+    await service.removeAddress("Ethernet 2", "192.168.5.254", 24, details);
+    expect(elevated[1]).not.toContain("dhcpstaticipcoexistence");
   });
 
   it("does not disable coexistence if it did not enable it", async () => {
