@@ -52,7 +52,7 @@ async function isElevated() {
   }
 }
 
-const escape = (s) => s.replaceAll("'", "''");
+const psQuote = (s) => s.replaceAll("'", "''");
 
 async function main() {
   if (!(await isElevated())) {
@@ -68,10 +68,10 @@ async function main() {
 
   // 1. Snapshot
   const dhcpBefore = await ps(
-    `(Get-NetIPInterface -InterfaceAlias '${escape(nic)}' -AddressFamily IPv4).Dhcp`,
+    `(Get-NetIPInterface -InterfaceAlias '${psQuote(nic)}' -AddressFamily IPv4).Dhcp`,
   );
   const addressesBefore = await ps(
-    `Get-NetIPAddress -InterfaceAlias '${escape(nic)}' -AddressFamily IPv4 | Sort-Object IPAddress | Select-Object -ExpandProperty IPAddress`,
+    `Get-NetIPAddress -InterfaceAlias '${psQuote(nic)}' -AddressFamily IPv4 | Sort-Object IPAddress | Select-Object -ExpandProperty IPAddress`,
   );
   console.log(
     `  snapshot: DHCP=${dhcpBefore || "<none>"}, addresses: ${(addressesBefore || "").split(/\r?\n/).join(", ") || "<none>"}\n`,
@@ -100,7 +100,7 @@ async function main() {
 
   // 3. Verify after add
   const addr = await ps(
-    `Get-NetIPAddress -InterfaceAlias '${escape(nic)}' -AddressFamily IPv4 -IPAddress ${ip} | Select-Object SkipAsSource, Store | ConvertTo-Json -Compress`,
+    `Get-NetIPAddress -InterfaceAlias '${psQuote(nic)}' -AddressFamily IPv4 -IPAddress ${ip} | Select-Object SkipAsSource, Store | ConvertTo-Json -Compress`,
   );
   let skipAsSource = null;
   let store = null;
@@ -119,7 +119,7 @@ async function main() {
     `got ${store}`,
   );
   const dhcpAfterAdd = await ps(
-    `(Get-NetIPInterface -InterfaceAlias '${escape(nic)}' -AddressFamily IPv4).Dhcp`,
+    `(Get-NetIPInterface -InterfaceAlias '${psQuote(nic)}' -AddressFamily IPv4).Dhcp`,
   );
   check(
     "DHCP still Enabled after add",
@@ -149,12 +149,12 @@ async function main() {
 
   // 5. Verify after restore
   const afterList = await ps(
-    `Get-NetIPAddress -InterfaceAlias '${escape(nic)}' -AddressFamily IPv4 | Sort-Object IPAddress | Select-Object -ExpandProperty IPAddress`,
+    `Get-NetIPAddress -InterfaceAlias '${psQuote(nic)}' -AddressFamily IPv4 | Sort-Object IPAddress | Select-Object -ExpandProperty IPAddress`,
   );
   const addrGone = !(afterList || "").split(/\r?\n/).includes(ip);
   check("address removed", addrGone);
   const dhcpAfterRemove = await ps(
-    `(Get-NetIPInterface -InterfaceAlias '${escape(nic)}' -AddressFamily IPv4).Dhcp`,
+    `(Get-NetIPInterface -InterfaceAlias '${psQuote(nic)}' -AddressFamily IPv4).Dhcp`,
   );
   check(
     "DHCP still Enabled after remove",
