@@ -274,9 +274,10 @@ discovered a real device (`192.168.68.32`, hostname `sic-dev2`) via DHCP, exit 0
 
 1. **Spike B live add/remove** — the only Windows path still unproven end to end.
    Needs an approved UAC prompt on a DHCP-enabled NIC: confirm DHCP stays
-   `Enabled`, the address appears with `skipassource=True`/`ActiveStore`, and
+   `Enabled`, the address appears with `SkipAsSource=True`/ActiveStore, and
    both the address and the coexistence flag are restored afterwards.
-   `.scratch/spike-b.mjs` in the working tree does exactly this.
+   Run the committed spike script from an elevated PowerShell:
+   `node scripts/spike-b-windows.mjs "Ethernet 2"`.
 2. **Real-hardware test matrix** — Linux (NetworkManager-managed and not, sudo
    helper path), USB Ethernet adapters, silent-device timeout menu flow.
    A Linux box is available as `ananords-dev` (Ubuntu 24.04) for the tcpdump path.
