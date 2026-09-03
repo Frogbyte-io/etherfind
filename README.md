@@ -124,6 +124,13 @@ configuration with snapshot/restore, privilege model). `etherfind` is a thin
 Ink/React TUI + CLI frontend over it, so a desktop GUI can reuse the same
 core later. See `PLAN.md` for the design decisions and staged plan.
 
+Published packaging: the `etherfind` npm package is **fully self-contained**
+(`@etherfind/core`, ink and react are bundled at build time via esbuild and
+it has zero runtime dependencies), so `npx etherfind` works with no npm org
+and no other packages. The core library stays a workspace package for
+development and future GUI reuse (`packages/core` is marked private — it is
+not published).
+
 ## Safety
 
 - Only the interface you selected is ever touched.

@@ -15,7 +15,12 @@
   "engines": {
     "node": ">=20"
   },
-  "files": ["dist", "!dist/**/*.test.*", "!dist/test-support/**", "!dist/**/*.tsbuildinfo"],
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "!dist/test-support/**",
+    "!dist/**/*.tsbuildinfo"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
@@ -27,5 +32,6 @@
     "type": "git",
     "url": "git+https://github.com/frogbyte-io/etherfind.git",
     "directory": "packages/core"
-  }
+  },
+  "private": true
 }

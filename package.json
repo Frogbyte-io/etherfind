@@ -8,8 +8,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -b --pretty",
-    "typecheck": "tsc -b --pretty",
+    "build": "tsc -b --pretty && npm run build --workspace etherfind",
+    "typecheck": "tsc -b --pretty && npm run typecheck --workspace etherfind",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "biome check .",

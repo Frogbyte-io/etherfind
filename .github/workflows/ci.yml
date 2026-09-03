@@ -39,13 +39,13 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      # Pack both workspaces and install the CLI tarball into a throwaway
-      # project, so a missing "files" entry or an unpublishable workspace
-      # dependency fails here rather than after `npm publish`.
-      - name: Pack workspaces
+      # Pack the CLI and install the tarball into a throwaway project. The
+      # package is fully self-contained (core/ink/react are bundled), so a
+      # missing "files" entry or a leaked runtime dependency fails here rather
+      # than after `npm publish`.
+      - name: Pack CLI
         run: |
           mkdir -p /tmp/tarballs
-          npm pack --workspace @etherfind/core --pack-destination /tmp/tarballs
           npm pack --workspace etherfind --pack-destination /tmp/tarballs
           ls -l /tmp/tarballs
 
@@ -53,9 +53,10 @@ jobs:
         run: |
           mkdir -p /tmp/smoke && cd /tmp/smoke
           npm init -y > /dev/null
-          npm install /tmp/tarballs/etherfind-*.tgz /tmp/tarballs/etherfind-core-*.tgz
+          npm install /tmp/tarballs/etherfind-*.tgz --no-audit --no-fund
           ./node_modules/.bin/etherfind --version
           ./node_modules/.bin/etherfind --help
+          node -e "const p=require('/tmp/smoke/node_modules/etherfind/package.json'); if (Object.keys(p.dependencies||{}).length) { console.error('published package must have no runtime dependencies'); process.exit(1); }"
 
       # The simulated backend exercises the full state machine end to end
       # without any capture privileges or real hardware.

@@ -283,7 +283,10 @@ discovered a real device (`192.168.68.32`, hostname `sic-dev2`) via DHCP, exit 0
    A Linux box is available as `ananords-dev` (Ubuntu 24.04) for the tcpdump path.
 3. **Full TUI workflow on real hardware** — the Ink UI was only exercised against
    the simulated backend and in JSON mode on the real NIC.
-4. **Publish** — `npm view etherfind`, `npm publish`, tag `v0.1.0`, GitHub release.
+4. **Publish** — `npm view etherfind`, `npm publish` from `packages/cli`
+   (the package is self-contained: core/ink/react bundled via esbuild, zero
+   runtime dependencies, no npm org required — `packages/core` is private),
+   tag `v0.1.0`, GitHub release.
    Confirm the LICENSE copyright holder ("Frogbyte") is correct first.
 5. **Post-v0.1 (designed for, not implemented)**: device memory journal,
    `DiscoveryStrategy` plugins (ARP sweep / common subnets), native libpcap
