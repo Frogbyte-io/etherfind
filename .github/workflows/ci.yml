@@ -66,3 +66,11 @@ jobs:
           ./node_modules/.bin/etherfind --simulate --json | tee run.ndjson
           grep -q '"event":"final"' run.ndjson
           grep -q '"ok":true' run.ndjson
+
+      # --version, --help and --simulate --json above never load ink, so they
+      # missed a real bug: the published 0.1.0 crashed with "Dynamic require
+      # of assert is not supported" the moment a real terminal reached
+      # `await import("ink")`. This forces that import path against the
+      # tarball's own dist/cli.js.
+      - name: Check the interactive TUI import path
+        run: node packages/cli/scripts/verify-tui-import.mjs /tmp/smoke/node_modules/etherfind/dist/cli.js

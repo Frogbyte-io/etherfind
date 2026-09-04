@@ -29,6 +29,14 @@ await build({
   alias: {
     "react-devtools-core": "./src/stub-devtools.js",
   },
-  // Note: the shebang in src/cli.ts is preserved automatically — do not add
-  // a banner, or the output ends up with two and Node rejects it.
+  // Bundled CJS deps (e.g. signal-exit, used by ink) call require() for node
+  // builtins like "assert". esbuild's ESM output rewrites every require()
+  // into a shim that only delegates to a real `require` if one is in scope —
+  // and in pure ESM there is none, so it throws "Dynamic require of ... is
+  // not supported" instead. Defining `require` via createRequire gives that
+  // shim something real to delegate to. esbuild inserts banner.js after the
+  // shebang (verified in dist/cli.js), so this does not produce a second one.
+  banner: {
+    js: "import { createRequire as __etherfindCreateRequire } from 'node:module';\nconst require = __etherfindCreateRequire(import.meta.url);",
+  },
 });
