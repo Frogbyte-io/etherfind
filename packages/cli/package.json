@@ -1,6 +1,6 @@
 {
   "name": "etherfind",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Find the IP address of a directly-connected Ethernet device. Run: npx etherfind",
   "license": "MIT",
   "type": "module",
