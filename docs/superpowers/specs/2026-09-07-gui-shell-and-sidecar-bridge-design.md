@@ -268,22 +268,60 @@ address on a real NIC.
 
 ### 7.2 Visual direction
 
-Vercel-style: neutral greys, high contrast text on near-white/near-black
-surfaces, hairline borders rather than shadows, tight radii (`--radius: 0.5rem`),
-generous whitespace, monospace for all network values (IP, MAC, interface
-names). Light and dark themes follow `prefers-color-scheme`, with a manual
-override. Motion is minimal and confined to state transitions.
+Vercel-style: neutral greys, high contrast text, hairline borders rather than
+shadows, tight radii (`--radius: 0.625rem`), generous whitespace, monospace for
+all network values (IP, MAC, interface names). Motion is minimal and confined to
+state transitions.
 
-### 7.3 Screens
+**Dark is the default theme.** Light is available as an explicit user override
+and must stay fully supported — both are already expressed as shadcn `neutral`
+CSS variables, so supporting both costs nothing — but dark is what the app opens
+in and what design work is verified against first. The app does not follow
+`prefers-color-scheme` on first run; it opens dark regardless, and remembers the
+user's override afterwards.
 
-1. **Interface picker.** Physical Ethernet adapters with driver description,
-   link state and current addresses. Populated by `list-interfaces`, which the
-   sidecar answers from `InterfaceService.enumerate()` and
-   `selectEthernetInterfaces()` directly — no engine involved, because this
-   runs before any run starts. Two toggles live here:
+Colour is reserved for meaning, not decoration. There is no brand accent: green
+means link-up or success, amber means *your network is currently modified*, red
+means failure. This keeps the amber status strip (§7.4) unmistakable.
+
+### 7.3 Layout
+
+Chosen after building five HTML mockups of the same six states
+(`.scratch/gui-mockups/`, throwaway). The structure is a synthesis of three of
+them, driven by the requirement that this shell must grow into specs 2–4 without
+being restructured:
+
+- **Interface rail** (left, persistent). Lists adapters with link-state dots and
+  either their address or driver. Always visible and switchable, with the
+  `--all-interfaces` and `--no-configure` toggles pinned at its foot.
+- **Timeline** (centre). The run renders as five vertical stages — interface,
+  link, discovery, reachability, verification. Finished stages collapse to a
+  one-line summary with a check; the current stage expands and holds that step's
+  controls; future stages are dimmed. This makes the run legible *after the
+  fact*, matching the CLI's transcript, and is where spec 2's live candidate
+  table and spec 4's evidence log attach.
+- **Event log drawer** (right, closed by default). Streams the raw
+  `EngineEvent`s with timestamps. We already emit every one of these, so the
+  drawer is nearly free, and it is exactly what is wanted when a capture finds
+  nothing. It opens automatically when a run fails and is otherwise on demand.
+  This subsumes the `--debug` parity item from §7.6.
+
+A centred single-card wizard was rejected: it reads best for a one-shot task but
+has nowhere to put a live device table or history, and its device-found state
+already overflows a 1180×760 window.
+
+### 7.4 Stage content
+
+The seven states below are stages of the timeline (§7.3), not separate screens.
+Only the active stage is expanded at any time.
+
+1. **Interface.** The rail is populated by `list-interfaces`, which the sidecar
+   answers from `InterfaceService.enumerate()` and `selectEthernetInterfaces()`
+   directly — no engine involved, because this runs before any run starts. Two
+   toggles sit at the foot of the rail:
    - include Wi-Fi and virtual adapters (equivalent to `--all-interfaces`);
    - **discover only, never modify my network** (equivalent to
-     `--no-configure`), which suppresses the consent screen entirely rather
+     `--no-configure`), which suppresses the consent stage entirely rather
      than showing it and refusing.
 2. **Guided replug.** "Disconnect the cable" → "Connect it now", driven by
    `link-state` events, with a "Skip, just listen" action.
@@ -294,39 +332,40 @@ override. Motion is minimal and confined to state transitions.
 5. **Consent to configure.** Triggered by the `confirm-configure` request. States
    the suggested address and prefix, that the `/24` is an assumption, exactly
    what will change on the system, that it is non-persistent, and that it will
-   be reverted on exit. This screen is the consent record; it is never
+   be reverted on exit. This stage is the consent record; it is never
    auto-advanced.
 6. **Ready.** The device with a clickable `http://<ip>` opened in the system
    browser via `tauri-plugin-opener`, and copy actions for IP and MAC.
 7. **Error / permission guidance.** Rendered from `CaptureError.kind` and
-   `guidance`. The Linux capture grant of §5.3 lives here.
+   `guidance`, replacing the failed stage in place. The Linux capture grant of
+   §5.3 lives here, and the event-log drawer opens itself alongside it.
 
-**Persistent status strip**, present on every screen: selected interface,
+**Persistent status strip**, present in every state: selected interface,
 current phase, and — non-negotiably — whether a temporary address is currently
 held, with an always-reachable "Stop and clean up" action. The user must never
 have to wonder whether this application has modified their network.
 
-### 7.4 State
+### 7.5 State
 
 A pure reducer, `applyEvent(state, EngineEvent): State`, in `src/state/`, with
 no Vue imports, unit-tested directly. A thin Pinia store wraps it, subscribes to
 `etherfind://frame`, and holds pending requests. This mirrors the state shape
 already proven by the Ink `App.tsx`.
 
-### 7.5 CLI parity checklist
+### 7.6 CLI parity checklist
 
 "Wizard parity" in §2 means specifically this, so it can be verified rather
 than asserted:
 
 | CLI option | GUI equivalent |
 |---|---|
-| `-i, --interface` | Interface picker (§7.3.1) |
-| `--listen` | "Skip, just listen" on the replug screen |
-| `--no-configure` | "Discover only" toggle on the picker |
+| `-i, --interface` | Interface rail (§7.3) |
+| `--listen` | "Skip, just listen" on the replug stage |
+| `--no-configure` | "Discover only" toggle on the rail |
 | `--all-interfaces` | "Include Wi-Fi and virtual adapters" toggle |
 | `--cleanup` | Startup leftover notice + manual cleanup action (§6) |
 | `--simulate` | Sidecar flag, development and CI only; not user-facing |
-| `--debug` | Diagnostics panel fed by the sidecar's stderr |
+| `--debug` | Event-log drawer, plus the sidecar's stderr (§7.3) |
 | `--json` | Not applicable |
 | `-h`, `-v` | Not applicable |
 
@@ -357,7 +396,8 @@ Classification already done in core drives the UI:
 - **Protocol codec tests.** Round-trip every `Command` and `Outbound` variant;
   assert malformed and partial lines are rejected without crashing the reader.
 - **Reducer tests.** `applyEvent` over recorded event sequences, including the
-  timeout, declined-configuration and cleanup-failure paths.
+  timeout, declined-configuration and cleanup-failure paths, and the stage
+  statuses the timeline (§7.3) derives from them.
 - **Rust unit test.** Line framing across chunk boundaries.
 - **Existing core and CLI suites** must stay green; §5.1 is a move and §5.2 is
   additive, so neither should require test changes beyond the import path.
@@ -403,5 +443,7 @@ Classification already done in core drives the UI:
 - **Unsigned binaries.** Windows will show a SmartScreen warning on first run
   and the AppImage is unsigned. Accepted for initial releases; signing is a
   later, separate concern.
+- Dark theme is the default and gets design attention first; light is supported
+  but verified second.
 - x86-64 only. No ARM builds for either platform.
 - No macOS.
