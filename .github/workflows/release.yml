@@ -76,6 +76,20 @@ jobs:
             exit 1
           fi
 
+      # `npm pack` (below) does not apply the same package.json normalization
+      # `npm publish` does. npm 11 silently *drops* a bin entry with a
+      # leading "./" instead of just stripping the prefix like npm 10 did —
+      # this caught that live, on the v0.1.3 attempt, after everything else
+      # had already passed.
+      - name: Reject any publish-time auto-correction of package.json
+        run: |
+          out="$(npm publish --workspace etherfind --dry-run 2>&1)"
+          echo "$out"
+          if echo "$out" | grep -q "npm auto-corrected"; then
+            echo "::error::npm would rewrite packages/cli/package.json at publish time — fix the source file, don't rely on npm's normalization."
+            exit 1
+          fi
+
       # Same smoke test as the CI packaging job: a missing "files" entry or a
       # leaked runtime dependency must fail before the publish, not after it,
       # because a published version can never be replaced.

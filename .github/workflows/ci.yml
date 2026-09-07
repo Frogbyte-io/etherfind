@@ -39,6 +39,22 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+      # `npm pack` (below) does not apply the same package.json normalization
+      # `npm publish` does. That gap let a real bug through: npm 11 silently
+      # *drops* a bin entry with a leading "./" instead of just stripping the
+      # prefix (npm 10 did that; only a warning). `npm publish --dry-run`
+      # applies the real normalization without uploading, so any correction
+      # notice here means the source file isn't canonical and would publish
+      # something different from what's committed.
+      - name: Reject any publish-time auto-correction of package.json
+        run: |
+          out="$(npm publish --workspace etherfind --dry-run 2>&1)"
+          echo "$out"
+          if echo "$out" | grep -q "npm auto-corrected"; then
+            echo "::error::npm would rewrite packages/cli/package.json at publish time — fix the source file, don't rely on npm's normalization."
+            exit 1
+          fi
+
       # Pack the CLI and install the tarball into a throwaway project. The
       # package is fully self-contained (core/ink/react are bundled), so a
       # missing "files" entry or a leaked runtime dependency fails here rather
