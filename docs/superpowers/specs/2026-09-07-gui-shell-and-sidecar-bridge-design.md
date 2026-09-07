@@ -94,8 +94,8 @@ frontend changing.
 ## 4. The sidecar protocol
 
 Newline-delimited JSON in both directions over the sidecar's stdin/stdout.
-stderr is a plain-text debug log channel, surfaced in the UI's diagnostics
-panel and never parsed.
+stderr is a plain-text debug log channel, surfaced in the event-log drawer
+(§7.3) and never parsed.
 
 The current `--json` CLI mode is one-way and auto-confirms configuration. The
 GUI needs request/reply because `selectInterface` and `confirmConfigure` must
